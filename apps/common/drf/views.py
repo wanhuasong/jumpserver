@@ -1,0 +1,12 @@
+from rest_framework.viewsets import *
+from rest_framework.views import *
+
+from ..mixins.api import SerializerMixin2, QuerySetMixin, ExtraFilterFieldsMixin
+
+
+class JmsGenericViewSet(SerializerMixin2, QuerySetMixin, ExtraFilterFieldsMixin, GenericViewSet):
+    pass
+
+
+class JmsModelViewSet(SerializerMixin2, QuerySetMixin, ExtraFilterFieldsMixin, ModelViewSet):
+    pass
