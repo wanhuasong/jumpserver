@@ -1,7 +1,7 @@
 import uuid
-from django.conf import settings
 
 from django.db import models
+from django.db.models import Q
 from django.utils.translation import ugettext_lazy as _
 
 from common.utils import is_uuid, lazyproperty
@@ -13,6 +13,8 @@ class Organization(models.Model):
     created_by = models.CharField(max_length=32, null=True, blank=True, verbose_name=_('Created by'))
     date_created = models.DateTimeField(auto_now_add=True, null=True, blank=True, verbose_name=_('Date created'))
     comment = models.TextField(max_length=128, default='', blank=True, verbose_name=_('Comment'))
+    members = models.ManyToManyField('users.User', related_name='orgs', through='orgs.OrganizationMembers',
+                                     through_fields=('org', 'user'))
 
     orgs = None
     CACHE_PREFIX = 'JMS_ORG_{}'
@@ -74,10 +76,8 @@ class Organization(models.Model):
     def org_users(self):
         from users.models import User
         if self.is_real():
-            return self.users.all()
+            return self.members.filter(orgs_through__role=OrganizationMembers.ROLE_USER)
         users = User.objects.filter(role=User.ROLE_USER)
-        if self.is_default() and not settings.DEFAULT_ORG_SHOW_ALL_USERS:
-            users = users.filter(related_user_orgs__isnull=True)
         return users
 
     def get_org_users(self):
@@ -87,7 +87,7 @@ class Organization(models.Model):
     def org_admins(self):
         from users.models import User
         if self.is_real():
-            return self.admins.all()
+            return self.members.filter(orgs_through__role=OrganizationMembers.ROLE_ADMIN)
         return User.objects.filter(role=User.ROLE_ADMIN)
 
     def get_org_admins(self):
@@ -105,7 +105,7 @@ class Organization(models.Model):
     def org_auditors(self):
         from users.models import User
         if self.is_real():
-            return self.auditors.all()
+            return self.members.filter(orgs_through__role=OrganizationMembers.ROLE_AUDITOR)
         return User.objects.filter(role=User.ROLE_AUDITOR)
 
     def get_org_auditors(self):
@@ -113,31 +113,29 @@ class Organization(models.Model):
 
     def get_org_members(self, exclude=()):
         from users.models import User
-        members = User.objects.none()
-        if 'Admin' not in exclude:
-            members |= self.get_org_admins()
-        if 'User' not in exclude:
-            members |= self.get_org_users()
-        if 'Auditor' not in exclude:
-            members |= self.get_org_auditors()
+        if self.is_real():
+            members = self.members.exclude(orgs_through__role__in=exclude)
+        else:
+            members = User.objects.exclude(role__in=exclude)
+
         return members.exclude(role=User.ROLE_APP).distinct()
 
     def can_admin_by(self, user):
         if user.is_superuser:
             return True
-        if self.get_org_admins().filter(id=user.id):
+        if self.get_org_admins().filter(id=user.id).exists():
             return True
         return False
 
     def can_audit_by(self, user):
         if user.is_super_auditor:
             return True
-        if self.get_org_auditors().filter(id=user.id):
+        if self.get_org_auditors().filter(id=user.id).exists():
             return True
         return False
 
     def can_user_by(self, user):
-        if self.get_org_users().filter(id=user.id):
+        if self.get_org_users().filter(id=user.id).exists():
             return True
         return False
 
@@ -150,10 +148,13 @@ class Organization(models.Model):
         if user.is_anonymous:
             return admin_orgs
         elif user.is_superuser:
-            admin_orgs = list(cls.objects.all())
-            admin_orgs.append(cls.default())
-        elif user.is_org_admin:
-            admin_orgs = user.related_admin_orgs.all()
+            admin_orgs.extend(cls.objects.all())
+        else:
+            admin_orgs.extend(cls.objects.filter(
+                users_through__role=OrganizationMembers.ROLE_ADMIN,
+                users_through__user_id=user.id
+            ).distinct())
+        admin_orgs.append(cls.default())
         return admin_orgs
 
     @classmethod
@@ -161,7 +162,12 @@ class Organization(models.Model):
         user_orgs = []
         if user.is_anonymous:
             return user_orgs
-        user_orgs = user.related_user_orgs.all()
+
+        user_orgs.extend(cls.objects.filter(
+            users_through__role=OrganizationMembers.ROLE_USER,
+            users_through__user_id=user.id
+        ).distinct())
+
         return user_orgs
 
     @classmethod
@@ -172,15 +178,28 @@ class Organization(models.Model):
         elif user.is_super_auditor:
             audit_orgs = list(cls.objects.all())
             audit_orgs.append(cls.default())
-        elif user.is_org_auditor:
-            audit_orgs = user.related_audit_orgs.all()
+        else:
+            audit_orgs.extend(cls.objects.filter(
+                users_through__role=OrganizationMembers.ROLE_AUDITOR,
+                users_through__user_id=user.id
+            ).distinct())
         return audit_orgs
 
     @classmethod
-    def get_user_admin_or_audit_orgs(self, user):
-        admin_orgs = self.get_user_admin_orgs(user)
-        audit_orgs = self.get_user_audit_orgs(user)
-        orgs = set(admin_orgs) | set(audit_orgs)
+    def get_user_admin_or_audit_orgs(cls, user):
+        orgs = []
+        if user.is_anonymous:
+            return orgs
+        elif user.is_superuser:
+            orgs.extend(cls.objects.all())
+        else:
+            orgs.extend(cls.objects.filter(
+                users_through__role__id=(
+                    OrganizationMembers.ROLE_AUDITOR, OrganizationMembers.ROLE_ADMIN
+                ),
+                users_through__user_id=user.id
+            ).distinct())
+        orgs.append(cls.default())
         return orgs
 
     @classmethod
@@ -226,8 +245,8 @@ class OrganizationMembers(models.Model):
         (ROLE_AUDITOR, _("Auditor"))
     )
     id = models.UUIDField(default=uuid.uuid4, primary_key=True)
-    org = models.ForeignKey(Organization, on_delete=models.CASCADE, verbose_name=_('Organization'))
-    user = models.ForeignKey('users.User', on_delete=models.CASCADE, verbose_name=_('User'))
+    org = models.ForeignKey(Organization, related_name='users_through', on_delete=models.CASCADE, verbose_name=_('Organization'))
+    user = models.ForeignKey('users.User', related_name='orgs_through', on_delete=models.CASCADE, verbose_name=_('User'))
     role = models.CharField(max_length=16, choices=ROLE_CHOICES, default=ROLE_USER, verbose_name=_("Role"))
     date_created = models.DateTimeField(auto_now_add=True, verbose_name=_("Date created"))
     date_updated = models.DateTimeField(auto_now=True, verbose_name=_("Date updated"))
