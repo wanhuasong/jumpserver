@@ -10,9 +10,6 @@ from common.utils import is_uuid, lazyproperty
 class Organization(models.Model):
     id = models.UUIDField(default=uuid.uuid4, primary_key=True)
     name = models.CharField(max_length=128, unique=True, verbose_name=_("Name"))
-    users = models.ManyToManyField('users.User', related_name='related_user_orgs', blank=True)
-    admins = models.ManyToManyField('users.User', related_name='related_admin_orgs', blank=True)
-    auditors = models.ManyToManyField('users.User', related_name='related_audit_orgs', blank=True)
     created_by = models.CharField(max_length=32, null=True, blank=True, verbose_name=_('Created by'))
     date_created = models.DateTimeField(auto_now_add=True, null=True, blank=True, verbose_name=_('Date created'))
     comment = models.TextField(max_length=128, default='', blank=True, verbose_name=_('Comment'))
@@ -216,3 +213,29 @@ class Organization(models.Model):
         orgs = list(cls.objects.all())
         orgs.append(cls.default())
         return orgs
+
+
+class OrganizationMembers(models.Model):
+    ROLE_ADMIN = 'Admin'
+    ROLE_USER = 'User'
+    ROLE_AUDITOR = 'Auditor'
+
+    ROLE_CHOICES = (
+        (ROLE_ADMIN, _('Administrator')),
+        (ROLE_USER, _('User')),
+        (ROLE_AUDITOR, _("Auditor"))
+    )
+    id = models.UUIDField(default=uuid.uuid4, primary_key=True)
+    org = models.ForeignKey(Organization, on_delete=models.CASCADE, verbose_name=_('Organization'))
+    user = models.ForeignKey('users.User', on_delete=models.CASCADE, verbose_name=_('User'))
+    role = models.CharField(max_length=16, choices=ROLE_CHOICES, default=ROLE_USER, verbose_name=_("Role"))
+    date_created = models.DateTimeField(auto_now_add=True, verbose_name=_("Date created"))
+    date_updated = models.DateTimeField(auto_now=True, verbose_name=_("Date updated"))
+    created_by = models.CharField(max_length=128, null=True, verbose_name=_('Created by'))
+
+    class Meta:
+        unique_together = [('org', 'user', 'role')]
+        db_table = 'orgs_organization_members'
+
+    def __str__(self):
+        return '{} is {}: {}'.format(self.user.name, self.org.name, self.role)
