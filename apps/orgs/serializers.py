@@ -4,7 +4,8 @@ from rest_framework import serializers
 
 from users.models.user import User
 from common.serializers import AdaptedBulkListSerializer
-from .models import Organization
+from common.drf.fields import PrimaryKeyRelatedFilterField
+from .models import Organization, OrganizationMembers
 from .mixins.serializers import OrgMembershipSerializerMixin
 
 
@@ -56,9 +57,9 @@ class OrgAllUserSerializer(serializers.Serializer):
 
 
 class OrgRetrieveSerializer(OrgReadSerializer):
-    admins = serializers.PrimaryKeyRelatedField(many=True, read_only=True)
-    auditors = serializers.PrimaryKeyRelatedField(many=True, read_only=True)
-    users = serializers.PrimaryKeyRelatedField(many=True, read_only=True)
+    admins = PrimaryKeyRelatedFilterField(many=True, source='members_with_role', read_only=True, filters={'org_role': OrganizationMembers.ROLE_ADMIN})
+    auditors = PrimaryKeyRelatedFilterField(many=True, source='members_with_role', read_only=True, filters={'org_role': OrganizationMembers.ROLE_AUDITOR})
+    users = PrimaryKeyRelatedFilterField(many=True, source='members_with_role', read_only=True, filters={'org_role': OrganizationMembers.ROLE_USER})
 
     class Meta(OrgReadSerializer.Meta):
         pass

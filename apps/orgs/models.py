@@ -1,7 +1,7 @@
 import uuid
 
 from django.db import models
-from django.db.models import Q
+from django.db.models import F
 from django.utils.translation import ugettext_lazy as _
 
 from common.utils import is_uuid, lazyproperty
@@ -70,6 +70,11 @@ class Organization(models.Model):
         except cls.DoesNotExist:
             org = cls.default() if default else None
         return org
+
+    @lazyproperty
+    def members_with_role(self):
+        from users.models import User
+        return list(self.members.annotate(org_role=F('orgs_through__role')))
 
     # @lazyproperty
     # lazyproperty 导致用户列表中角色显示出现不稳定的情况, 如果不加会导致数据库操作次数太多
