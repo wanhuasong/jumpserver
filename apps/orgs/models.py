@@ -156,8 +156,8 @@ class Organization(models.Model):
             admin_orgs.extend(cls.objects.all())
         else:
             admin_orgs.extend(cls.objects.filter(
-                users_through__role=OrganizationMembers.ROLE_ADMIN,
-                users_through__user_id=user.id
+                members_through__role=OrganizationMembers.ROLE_ADMIN,
+                members_through__user_id=user.id
             ).distinct())
         admin_orgs.append(cls.default())
         return admin_orgs
@@ -169,8 +169,8 @@ class Organization(models.Model):
             return user_orgs
 
         user_orgs.extend(cls.objects.filter(
-            users_through__role=OrganizationMembers.ROLE_USER,
-            users_through__user_id=user.id
+            members_through__role=OrganizationMembers.ROLE_USER,
+            members_through__user_id=user.id
         ).distinct())
 
         return user_orgs
@@ -185,8 +185,8 @@ class Organization(models.Model):
             audit_orgs.append(cls.default())
         else:
             audit_orgs.extend(cls.objects.filter(
-                users_through__role=OrganizationMembers.ROLE_AUDITOR,
-                users_through__user_id=user.id
+                members_through__role=OrganizationMembers.ROLE_AUDITOR,
+                members_through__user_id=user.id
             ).distinct())
         return audit_orgs
 
@@ -199,10 +199,10 @@ class Organization(models.Model):
             orgs.extend(cls.objects.all())
         else:
             orgs.extend(cls.objects.filter(
-                users_through__role__id=(
+                members_through__role__id=(
                     OrganizationMembers.ROLE_AUDITOR, OrganizationMembers.ROLE_ADMIN
                 ),
-                users_through__user_id=user.id
+                members_through__user_id=user.id
             ).distinct())
         orgs.append(cls.default())
         return orgs
@@ -250,7 +250,7 @@ class OrganizationMembers(models.Model):
         (ROLE_AUDITOR, _("Auditor"))
     )
     id = models.UUIDField(default=uuid.uuid4, primary_key=True)
-    org = models.ForeignKey(Organization, related_name='users_through', on_delete=models.CASCADE, verbose_name=_('Organization'))
+    org = models.ForeignKey(Organization, related_name='members_through', on_delete=models.CASCADE, verbose_name=_('Organization'))
     user = models.ForeignKey('users.User', related_name='orgs_through', on_delete=models.CASCADE, verbose_name=_('User'))
     role = models.CharField(max_length=16, choices=ROLE_CHOICES, default=ROLE_USER, verbose_name=_("Role"))
     date_created = models.DateTimeField(auto_now_add=True, verbose_name=_("Date created"))
